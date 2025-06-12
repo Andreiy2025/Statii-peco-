@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Harta PECO cu Rute și Stație cea mai ieftină</title>
+    <meta charset="utf-8" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; }
+      #map { height: 100vh; width: 100%; position: relative; z-index: 0; }
+
+      #header {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        color: white;
+        text-align: center;
+        padding: 15px;
+        font-size: 20px;
+        z-index: 2;
+      }
+
+      #panel {
+        position: fixed;
+        top: 65px;
+        left: 10px;
+        z-index: 3;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 12px;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(4px);
+      }
+
+      #panel input {
+        margin-bottom: 6px; width: 240px;
+        padding: 8px; border-radius: 6px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+      }
+
+      #panel button {
+        display: block;
+        width: 100%;
+        margin-top: 8px;
+        padding: 8px;
+        font-size: 14px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      #panel button:hover {
+        background-color: #0056b3;
+      }
+
+      #dkvUpdateBtn {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        z-index: 1000;
+        padding: 10px 16px;
+        background-color: #000;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+
+      #filterButtons button {
+  	display: block;
+  	margin-bottom: 5px;
+  	padding: 6px 10px;
+  	width: 100px;
+ 	 background-color: #f0f0f0;
+  	border: 1px solid #ccc;
+  	border-radius: 6px;
+  	cursor: pointer;
+  	font-weight: bold;
+	}
+
+	#filterButtons button:hover {
+  	background-color: #ddd;
+	}
+
+#panel .filter-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  font-size: 14px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#panel .filter-btn:hover {
+  background-color: #0056b3;
+}
+
+#panel .filter-btn.active {
+  background-color: #28a745 !important;
+}
+    </style>
+  </head>
+  <body>
+    <div id="header">Stații Diesel BENONI BENODAV ASIGSERV</div>
+
+    <div id="panel">
+      <input id="start" type="text" placeholder="🚛 Punct plecare"><br>
+      <input id="waypoint" type="text" placeholder=✈️ Punct intermediar"><br>
+      <input id="end" type="text" placeholder="🏢 Destinație"><br>
+      <button onclick="calcRoute()">➡️ Afișează ruta</button>
+      <button onclick="findCheapestNearby()">🔵 Cea mai ieftină în zonă</button>
+<!-- Filtrare stații -->
+<div id="filterButtons" style="margin-top: 15px;">
+  <label style="font-weight: bold;">🔍 Filtre stații:</label><br>
+  <button class="filter-btn" onclick="toggleFilter('DKV', this)">DKV</button>
+  <button class="filter-btn" onclick="toggleFilter('IDS', this)">IDS</button>
+  <button class="filter-btn" onclick="toggleFilter('EW', this)">EW</button>
+  <button class="filter-btn" onclick="toggleFilter('SHELL', this)">SHELL</button>
+  <button class="filter-btn" onclick="resetFilter()">Toate</button>
+</div>
+<button onclick="salveazaCSV()">💾 Salvează stațiile în fisier</button>
+
+<label for="customExcelInput" style="display:inline-block; padding:6px 12px; background-color:#007bff; color:#fff; border-radius:4px; cursor:pointer; margin-top:10px;">
+  Încarcă toate prețurile.
+</label>
+<input type="file" id="customExcelInput" accept=".xlsx,.xls" onchange="incarcaDinFisier()" style="display:none;" />    </div>
+
+    <div id="map"></div>
+
+
+<!-- Buton CSV (dreapta-jos) -->
+<div style="
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  z-index: 9999;">
+  <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none;" onchange="processCSV()">
+  <button onclick="document.getElementById('csvFileInput').click();">Încarcă DKV </button>
+</div>
+
+<!-- Buton IDS (deasupra celui DKV) -->
+<div style="
+  position: fixed;
+  bottom: 70px;
+  right: 20px;
+  background-color: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  z-index: 9999;">
+  <input type="file" id="csvFileInputIDS" accept=".csv,.xlsx,.xls" style="display:none;" onchange="processCSV_IDS()">
+  <button onclick="document.getElementById('csvFileInputIDS').click();">Încarcă IDS</button>
+</div>
+
+<!-- Buton EW (deasupra celui IDS) -->
+<div style="
+  position: fixed;
+  bottom: 130px; /* mai sus decât IDS */
+  right: 20px;
+  background-color: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  z-index: 9999;">
+  <input type="file" id="csvFileInputEW" accept=".csv,.xlsx,.xls" style="display:none;" onchange="processCSV_EW()">
+  <button onclick="document.getElementById('csvFileInputEW').click();">Încarcă EW</button>
+</div>
+
+<!-- Buton SHELL (deasupra celui EW) -->
+<div style="
+  position: fixed;
+  bottom: 180px; /* mai sus decât EW */
+  right: 20px;
+  background-color: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  z-index: 9999;">
+  <input type="file" id="csvFileInputSHELL" accept=".csv,.xlsx,.xls" style="display:none;" onchange="processCSV_SHELL()">
+  <button onclick="document.getElementById('csvFileInputSHELL').click();">Încarcă SHELL</button>
+</div>
+
+<!-- Panel pentru afișare (stânga-jos) -->
+<pre id="output" style="
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 360px;
+  max-height: 350px;
+  overflow: auto;
+  background-color: rgba(255,255,255,0.95);
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+  z-index: 9999;"></pre>
+
+    <script>
+      let map, directionsService, directionsRenderer;
+      let shellIcon = "shell.png";
+      let ewIcon = "ew.png"; 
+      let dkvIcon = "dkv.png";
+      let idsIcon = "ids.png";
+      const statii = [];
+      const toateStatiile = []; // toate statiile
+      const markerObjects = {};
+      let preturiCSV = {}; // dicționar global cu prețuri din fișier
+      let markerList = [];
+      let markerMap = {}; // cheie = cod statie, valoare = marker Google
+      cursValutar = {};
+      let filtreActive = [];
+      let map_by_country_DKV = {};
+      let map_by_country_observation_coduri = {};
+
+ function addCustomMarker(tara, lat, lng, nume, cod, program, pret, observatii = "") {
+  toateStatiile.push({ tara, lat, lng, nume, cod, program, pret, observatii });
+  addMarker(tara, lat, lng, nume, cod, program, pret, observatii);
+}
+      function initMap() {
+        map = new google.maps.Map(document.getElementById("map"), {
+          zoom: 6,
+          center: { lat: 48.2, lng: 14.2 }
+        });
+      directionsService = new google.maps.DirectionsService();
+      directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
+
+
+const cache = localStorage.getItem("statii_cache");
+if (cache) {
+  try {
+    const cachedMarkers = JSON.parse(cache);
+    cachedMarkers.forEach(row => {
+      addCustomMarker(
+        row.tara || "",
+        parseFloat(row.lat),
+        parseFloat(row.lng),
+        row.nume || "",
+        row.cod || "",
+        row.program || "",
+        row.pret || "",
+        row.observatii || ""
+      );
+    });
+    console.log("✅ Markerii au fost încărcați din cache.");
+  } catch (e) {
+    console.warn("⚠️ Eroare la citirea cache-ului:", e);
+  }
+}
+   }
+
+      function addMarker(tara, lat, lng, nume, cod, program, pret, observatii = "") {
+        let iconPath = idsIcon;
+        if (nume.toUpperCase().includes("SHELL")) iconPath = shellIcon;
+        else if (nume.toUpperCase().includes("EW")) iconPath = ewIcon;
+        else if (nume.toUpperCase().includes("DKV")) iconPath = dkvIcon;
+
+        const marker = new google.maps.Marker({
+          position: { lat, lng },
+          map: map,
+          title: nume,
+          icon: { url: iconPath, scaledSize: new google.maps.Size(30, 30) }
+        });
+        
+        let content = `<strong>${nume}</strong><br>
+                     Coordonate: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+                     Cod stație: ${cod}<br>
+                     Program: ${program}<br>
+                     Preț: ${pret} €/L`;
+        if (observatii) content += `<br><b>Observații:</b> ${observatii}`;
+
+        const infoWindow = new google.maps.InfoWindow({ content });
+        marker.addListener("click", () => { infoWindow.open(map, marker); });
+        markerList.push(marker);
+        marker.extra = {
+  tara: tara,
+  program: program,
+  pret: pret,
+  observatii: observatii,
+  lat: lat,
+  lng: lng,
+  cod: cod
+};
+        
+        if(nume.toUpperCase().includes("DKV")) 
+        {
+           if (map_by_country_DKV[tara]) {
+               map_by_country_DKV[tara].push(marker);
+           }
+           else {
+             map_by_country_DKV[tara] = [];
+             map_by_country_DKV[tara].push(marker);
+           }
+        }
+        else if (nume.toUpperCase().includes("SHELL"))
+        {
+	   if (map_by_country_observation_coduri[tara])
+           {
+              if(map_by_country_observation_coduri[tara][observatii])
+              {
+                 map_by_country_observation_coduri[tara][observatii].push(cod);
+              }
+              else
+              {
+                 map_by_country_observation_coduri[tara][observatii] = [];
+                 map_by_country_observation_coduri[tara][observatii].push(cod);
+              }
+           }
+           else
+           {
+              map_by_country_observation_coduri[tara] = {};
+              map_by_country_observation_coduri[tara][observatii] = [];
+              map_by_country_observation_coduri[tara][observatii].push(cod);
+           }
+        }
+        markerMap[cod.trim()] = marker;
+        // Salvăm toate informațiile despre stație
+        const statie = { 
+          lat, lng, nume, cod, program, pret, observatii, 
+          marker, infoWindow, iconPath 
+        };
+        
+        statii.push(statie);
+        markerObjects[cod] = statie;
+        
+        return statie;
+      }
+
+
+function processCSV() {
+  const fileInput = document.getElementById('csvFileInput');
+  const output = document.getElementById('output');
+
+  if (!fileInput.files[0]) {
+    output.textContent = "⚠️ Niciun fișier selectat.";
+    return;
+  }
+
+  const file_name = fileInput.files[0].name.toLowerCase();
+
+if(file_name.endsWith(".csv")) {
+  Papa.parse(fileInput.files[0], {
+  encoding: "ISO-8859-1",
+  delimiter: ";",
+  header: true,
+  skipEmptyLines: true,
+  complete: function(results) {
+    const data = results.data;
+    //preturiCSV = {}; // <- variabilă globală
+
+    data.forEach(row => {
+      const key = row["Cod statie"].trim();
+      preturiCSV[key] = row;
+    });
+
+    output.textContent =
+      "✅ Dicționar creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+    incarcaCursValutar(() => {
+        actualizeazaPreturiDinCSV();
+      });
+  }
+});
+} else if (file_name.endsWith(".xlsx") || file_name.endsWith(".xls")) {
+     
+      	 const reader = new FileReader();
+
+  reader.onload = function (event) {
+    const data = new Uint8Array(event.target.result);
+    const workbook = XLSX.read(data, { type: "array" });
+    const sheetName = workbook.SheetNames[0];
+
+    // Convertim Excel-ul în CSV (cu delimitator ";")
+    const csvText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: ";" });
+
+    // Construim un fișier CSV virtual
+    const csvBlob = new Blob([csvText], { type: "text/csv" });
+    const csvFile = new File([csvBlob], "convertit_din_excel.csv", { type: "text/csv" });
+
+    // Injectăm fișierul în inputul tău <input type="file" id="csvFileInput">
+    const fileInput1 = document.getElementById("csvFileInput");
+    const dt = new DataTransfer();
+    dt.items.add(csvFile);
+    fileInput1.files = dt.files;
+
+    // Apelăm funcția deja existentă, exact așa cum e
+    Papa.parse(csvFile, {
+  encoding: "ISO-8859-1",
+  delimiter: ";",
+  header: true,
+  skipEmptyLines: true,
+  complete: function(results) {
+    const data = results.data;
+    //preturiCSV = {}; // <- variabilă globală
+
+    data.forEach(row => {
+      const key = row["Cod statie"].trim();
+      preturiCSV[key] = row;
+    });
+
+    output.textContent =
+      "✅ Dicționar creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+    incarcaCursValutar(() => {
+        actualizeazaPreturiDinCSV();
+      });
+  }
+});
+
+};
+  
+  reader.readAsArrayBuffer(fileInput.files[0]);
+
+} else {
+      alert("⚠️ Tip de fișier neacceptat. Acceptăm doar .csv, .xls sau .xlsx");
+}
+
+
+}
+
+
+function processCSV_IDS() {
+  const fileInput = document.getElementById('csvFileInputIDS');
+  const output = document.getElementById('output');
+
+  if (!fileInput.files[0]) {
+    output.textContent = "⚠️ Niciun fișier selectat.";
+    return;
+  }
+
+  const fileName = fileInput.files[0].name.toLowerCase();
+
+  if (fileName.endsWith(".csv")) {
+    Papa.parse(fileInput.files[0], {
+      encoding: "ISO-8859-1",
+      delimiter: ";",
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        const data = results.data;
+        //preturiCSV = {};
+
+        data.forEach(row => {
+          const key = row["Outlet code"]?.trim();
+          if (key) {
+            preturiCSV[key] = row;
+          }
+        });
+
+        output.textContent =
+          "✅ Dicționar IDS creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+        incarcaCursValutar(() => {
+          actualizeazaPreturiDinCSV_IDS();
+        });
+      }
+    });
+  } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      const data = new Uint8Array(event.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const csvText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: ";" });
+      const csvBlob = new Blob([csvText], { type: "text/csv" });
+      const csvFile = new File([csvBlob], "convertit_din_excel.csv", { type: "text/csv" });
+
+      Papa.parse(csvFile, {
+        encoding: "ISO-8859-1",
+        delimiter: ";",
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          const data = results.data;
+          //preturiCSV = {};
+
+          data.forEach(row => {
+            const key = row["Outlet code"]?.trim();
+            if (key) {
+              preturiCSV[key] = row;
+            }
+          });
+
+          output.textContent =
+            "✅ Dicționar IDS creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+          incarcaCursValutar(() => {
+            actualizeazaPreturiDinCSV_IDS();
+          });
+        }
+      });
+    };
+    reader.readAsArrayBuffer(fileInput.files[0]);
+  } else {
+    alert("⚠️ Tip de fișier neacceptat. Acceptăm doar .csv, .xls sau .xlsx");
+  }
+}
+
+
+function processCSV_EW() {
+  const fileInput = document.getElementById('csvFileInputEW');
+  const output = document.getElementById('output');
+
+  if (!fileInput.files[0]) {
+    output.textContent = "⚠️ Niciun fișier selectat.";
+    return;
+  }
+
+  const fileName = fileInput.files[0].name.toLowerCase();
+
+  if (fileName.endsWith(".csv")) {
+    Papa.parse(fileInput.files[0], {
+      encoding: "ISO-8859-1",
+      delimiter: ",",
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        const data = results.data;
+        //preturiCSV = {};
+
+        data.forEach(row => {
+          const key = row["LocationCode"]?.trim(); // Modifică dacă e altă denumire
+          if (key) {
+            preturiCSV[key] = row;
+          }
+        });
+
+        output.textContent =
+          "✅ Dicționar EW creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+        incarcaCursValutar(() => {
+          actualizeazaPreturiDinCSV_EW();
+        });
+      }
+    });
+  } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      const data = new Uint8Array(event.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const csvText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: "," });
+      const csvBlob = new Blob([csvText], { type: "text/csv" });
+      const csvFile = new File([csvBlob], "convertit_din_excel.csv", { type: "text/csv" });
+
+      Papa.parse(csvFile, {
+        encoding: "ISO-8859-1",
+        delimiter: ",",
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          const data = results.data;
+          //preturiCSV = {};
+
+          data.forEach(row => {
+            const key = row["LocationCode"]?.trim(); // Modifică dacă e altă denumire
+            if (key) {
+              preturiCSV[key] = row;
+            }
+          });
+
+          output.textContent =
+            "✅ Dicționar EW creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+          incarcaCursValutar(() => {
+            actualizeazaPreturiDinCSV_EW();
+          });
+        }
+      });
+    };
+    reader.readAsArrayBuffer(fileInput.files[0]);
+  } else {
+    alert("⚠️ Tip de fișier neacceptat. Acceptăm doar .csv, .xls sau .xlsx");
+  }
+}
+
+function processCSV_SHELL() {
+  const fileInput = document.getElementById('csvFileInputSHELL');
+  const output = document.getElementById('output');
+
+  if (!fileInput.files[0]) {
+    output.textContent = "⚠️ Niciun fișier selectat.";
+    return;
+  }
+
+  const fileName = fileInput.files[0].name.toLowerCase();
+
+  if (fileName.endsWith(".csv")) {
+    Papa.parse(fileInput.files[0], {
+      encoding: "ISO-8859-1",
+      delimiter: ",",
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        const data = results.data;
+        //preturiCSV = {};
+
+        data.forEach(row => {
+          const key = "SHELL" + Object.keys(preturiCSV).length; // Modifică dacă e altă denumire
+          if (key) {
+            preturiCSV[key] = row;
+          }
+        });
+
+        output.textContent =
+          "✅ Dicționar SHELL creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+        incarcaCursValutar(() => {
+          actualizeazaPreturiDinCSV_EW();
+        });
+      }
+    });
+  } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      const data = new Uint8Array(event.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const csvText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: "," });
+      const csvBlob = new Blob([csvText], { type: "text/csv" });
+      const csvFile = new File([csvBlob], "convertit_din_excel.csv", { type: "text/csv" });
+
+      Papa.parse(csvFile, {
+        encoding: "ISO-8859-1",
+        delimiter: ",",
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          const data = results.data;
+          //preturiCSV = {};
+
+          data.forEach(row => {
+            const key = "SHELL" + Object.keys(preturiCSV).length; // Modifică dacă e altă denumire
+            if (key) {
+              preturiCSV[key] = row;
+            }
+          });
+
+          output.textContent =
+            "✅ Dicționar SHELL creat cu " + Object.keys(preturiCSV).length + " stații.\n\n";
+
+          incarcaCursValutar(() => {
+            actualizeazaPreturiDinCSV_SHELL();
+          });
+        }
+      });
+    };
+    reader.readAsArrayBuffer(fileInput.files[0]);
+  } else {
+    alert("⚠️ Tip de fișier neacceptat. Acceptăm doar .csv, .xls sau .xlsx");
+  }
+}
+
+
+function actualizeazaPreturiDinCSV_EW() {
+  Object.keys(preturiCSV).forEach(cod => {
+    const row = preturiCSV[cod];
+    const pretText = (row["Price"] || "").replace(",", ".");
+    const pretLocal = parseFloat(pretText);
+    const moneda = (row["Currency"] || "EUR").trim().toUpperCase();
+
+    inlocuiesteMarker(cod, pretLocal, moneda);
+  });
+  salveazaInCache();
+}
+
+function actualizeazaPreturiDinCSV_IDS() {
+  Object.keys(preturiCSV).forEach(cod => {
+    const row = preturiCSV[cod];
+    const pretText = (row["Price per liter including rebate"] || "").replace(",", ".");
+    const pretLocal = parseFloat(pretText);
+    const moneda = (row["SOU currency"] || "EUR").trim().toUpperCase();
+
+    inlocuiesteMarker(cod, pretLocal, moneda);
+  });
+  salveazaInCache();
+}
+
+
+function actualizeazaPreturiDinCSV() {
+  Object.keys(preturiCSV).forEach(cod => {
+    const row = preturiCSV[cod];
+    if (row["Tara"] == "DE") {
+       for(var i=0;i < map_by_country_DKV["DE"].length; i++) {
+         cod = map_by_country_DKV["DE"][i].extra.cod;
+
+         const pretText = (row["Pret net (cu discount inclus)"] || "").replace(",", ".");
+         const pretLocal = parseFloat(pretText);
+         const moneda = row["Local Currency"]?.trim().toUpperCase() || "EUR";
+         inlocuiesteMarker(cod, pretLocal, moneda);
+       }
+    }
+    else {
+    const pretText = (row["Pret net (cu discount inclus)"] || "").replace(",", ".");
+const pretLocal = parseFloat(pretText);
+    const moneda = row["Local Currency"]?.trim().toUpperCase() || "EUR";
+
+    inlocuiesteMarker(cod, pretLocal, moneda);
+    }
+  });
+  salveazaInCache();
+}
+
+function actualizeazaPreturiDinCSV_SHELL() {
+  const preturiCategorie = {}; // { Austria: { "Economy": 1.2539, "Super Economy": 1.2039 } }
+  const preturiSpecifice = {}; // { "30767": 1.1339, "50847": 1.1339 }
+  //console.log(map_by_country_observation_coduri);
+  Object.values(preturiCSV).forEach(row => {
+    const tara = row["Tara"]?.trim().toUpperCase();
+    const grup = row["Grup de statii"]?.trim();
+    const pret = parseFloat((row["Pret dupa discount (pe unitate)"] || "").replace(",", "."));
+    const moneda = row["Moneda"]?.trim();
+    const nume_produs = row["Nume produs"]?.trim();
+    const is_diesel = nume_produs == "Diesel AGO";
+
+    if (!tara || isNaN(pret)) return;
+
+    // Statii specifice
+    const coduri = row["Statii specificate"]?.split("|") || [];
+    coduri.forEach(cod => {
+      cod = cod.trim();
+      if (cod && is_diesel) preturiSpecifice[cod] = { pret: pret, curs: moneda};
+    });
+
+    // Categorii generale
+    if (coduri.length == 1 && coduri[0] == '') {
+     
+    if (grup && (grup.toUpperCase().includes("ECONOMY"))) {
+      preturiCategorie[tara] = preturiCategorie[tara] || {};
+      if (grup.toUpperCase().includes("SUPER") && is_diesel) {
+        preturiCategorie[tara]["Super Economy"] = { pret: pret, curs: moneda};
+      } else if (is_diesel) {
+        preturiCategorie[tara]["Economy"] = { pret: pret, curs: moneda};
+      }
+    }
+    }
+  });
+
+  markerList.forEach(marker => {
+    const extra = marker.extra || {};
+    const cod = extra.cod?.trim();
+    const tara = extra.tara?.trim();
+    const observatii = (extra.observatii || "").toUpperCase();
+
+    let pretFinal = null;
+    let moneda = null;
+
+    // Dacă observatiile conțin un cod specific
+    if (preturiSpecifice[observatii]) {
+      pretFinal = preturiSpecifice[observatii].pret;
+      moneda = preturiSpecifice[observatii].curs;
+    }
+    // Dacă observatiile conțin Economy/Super Economy
+    else if (tara && observatii.includes("SUPER ECONOMY") && preturiCategorie[tara]?.["Super Economy"]) {
+      pretFinal = preturiCategorie[tara]["Super Economy"].pret;
+      moneda = preturiCategorie[tara]["Super Economy"].curs;
+    }
+    else if (tara && observatii.includes("ECONOMY") && preturiCategorie[tara]?.["Economy"]) {
+      pretFinal = preturiCategorie[tara]["Economy"].pret;
+      moneda = preturiCategorie[tara]["Economy"].curs;
+    }
+
+    if (pretFinal !== null) {
+      if (map_by_country_observation_coduri[tara]) {
+        let codes = map_by_country_observation_coduri[tara][observatii] || [];
+        for (var i=0; i < codes.length; i++) {
+      		inlocuiesteMarker(codes[i], pretFinal,moneda);
+        }
+      }
+    }
+  });
+  salveazaInCache();
+}
+
+
+function inlocuiesteMarker(cod, pretLocal, moneda) {
+  const codKey = cod.trim();
+  const markerVechi = markerMap[codKey];
+
+if (!cursValutar[moneda]) {
+  console.warn(`⚠️ Nu există curs pentru moneda ${moneda}`);
+}
+
+  if (!markerVechi) {
+    console.warn(`⚠️ Marker inexistent pentru cod: ${codKey}`);
+    return;
+  }
+
+  if (isNaN(pretLocal)) {
+    console.warn(`⚠️ Preț invalid pentru cod ${codKey}: ${pretLocal}`);
+    return;
+  }
+
+  const curs = cursValutar[moneda] || 1;
+  const pretEuro = (pretLocal / curs).toFixed(4);
+
+  const pozitie = markerVechi.getPosition?.();
+  const lat = markerVechi.extra?.lat || pozitie?.lat?.();
+  const lng = markerVechi.extra?.lng || pozitie?.lng?.();
+  const tara = markerVechi.extra?.tara || "fara tara (nu-i bine)";
+
+  if (!lat || !lng) {
+    console.error(`❌ Poziție lipsă pentru codul ${codKey}. Markerul nu va fi creat.`);
+    return;
+  }
+
+  const nume = markerVechi.getTitle?.() || "Stație necunoscută";
+  const program = markerVechi.extra?.program || "N/A";
+  const observatii = markerVechi.extra?.observatii || "";
+
+  let iconPath = idsIcon;
+  if (nume.toUpperCase().includes("SHELL")) iconPath = shellIcon;
+  else if (nume.toUpperCase().includes("EW")) iconPath = ewIcon;
+  else if (nume.toUpperCase().includes("DKV")) iconPath = dkvIcon;
+
+  markerVechi.setMap(null);
+
+  const markerNou = new google.maps.Marker({
+    position: { lat, lng },
+    map: map,
+    title: nume,
+    icon: { url: iconPath, scaledSize: new google.maps.Size(30, 30) }
+  });
+
+  const content = `
+    <b>${nume}</b><br>
+    Coordonate: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+    Cod: ${codKey}<br>
+    Program: ${program}<br>
+    Preț actualizat: ${pretEuro} EUR<br>
+    ${observatii ? `Observații: ${observatii}` : ""}
+  `;
+
+  const infoWindow = new google.maps.InfoWindow({ content });
+  markerNou.addListener("click", () => infoWindow.open(map, markerNou));
+
+  // ✅ Structura TA originală — fără improvizații:
+  markerNou.extra = {
+    tara: tara,
+    program: program,
+    pret: pretEuro,
+    observatii: observatii,
+    lat: lat,
+    lng: lng,
+    cod: codKey
+  };
+  
+  // sterg marker vechi din lista.
+  const index = markerList.indexOf(markerVechi);
+  if (index !== -1) markerList.splice(index, 1);
+
+  markerMap[codKey] = markerNou;
+  if (typeof markerList !== 'undefined') markerList.push(markerNou);
+}
+
+function incarcaCursValutar(callback) {
+  const proxyUrl = "https://api.allorigins.win/raw?url=";
+  const ecbUrl = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
+
+  fetch(proxyUrl + encodeURIComponent(ecbUrl))
+    .then(res => {
+      if (!res.ok) throw new Error("Eroare HTTP: " + res.status);
+      return res.text();
+    })
+    .then(xmlText => {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+      const cubeNodes = xmlDoc.querySelectorAll("Cube[currency][rate]");
+
+      cursValutar = { EUR: 1 };
+      cubeNodes.forEach(cube => {
+        const currency = cube.getAttribute("currency");
+        const rate = parseFloat(cube.getAttribute("rate"));
+        if (currency && !isNaN(rate)) {
+          cursValutar[currency] = rate;
+        }
+      });
+
+      alert("✅ Cursuri BCE încărcate (cu proxy):", cursValutar);
+      callback();
+    })
+    .catch(err => {
+      alert("❌ Eroare la curs BCE (proxy):", err.message);
+      alert("Nu s-au putut încărca cursurile de la BCE.");
+    });
+}
+
+
+    // Restul funcțiilor rămân neschimbate
+      function parseLocation(input) {
+        input = input.trim();
+        const coordRegex = /^([-+]?\d*\.?\d+)([NS])?[,\s]+([-+]?\d*\.?\d+)([EW])?$/i;
+        const match = input.match(coordRegex);
+        if (match) {
+          let lat = parseFloat(match[1]);
+          let lng = parseFloat(match[3]);
+          if (match[2]?.toUpperCase() === "S") lat = -lat;
+          if (match[4]?.toUpperCase() === "W") lng = -lng;
+          return { lat, lng };
+        }
+        return null;
+      }
+
+      function calcRoute() {
+        const fromRaw = document.getElementById("start").value;
+        const toRaw = document.getElementById("end").value;
+        const viaRaw = document.getElementById("waypoint").value;
+
+        const fromCoords = parseLocation(fromRaw);
+        const toCoords = parseLocation(toRaw);
+        const viaCoords = parseLocation(viaRaw);
+
+        if (fromCoords && !toRaw) {
+          map.setCenter(fromCoords);
+          map.setZoom(10);
+          return;
+        }
+
+        const request = {
+          origin: fromCoords ? new google.maps.LatLng(fromCoords.lat, fromCoords.lng) : fromRaw,
+          destination: toCoords ? new google.maps.LatLng(toCoords.lat, toCoords.lng) : toRaw,
+          travelMode: google.maps.TravelMode.DRIVING,
+        };
+
+        if (viaRaw) {
+          request.waypoints = [{
+            location: viaCoords ? new google.maps.LatLng(viaCoords.lat, viaCoords.lng) : viaRaw,
+            stopover: true
+          }];
+        }
+
+        directionsService.route(request, (result, status) => {
+          if (status === "OK") {
+            directionsRenderer.setDirections(result);
+          } else {
+            alert("Nu am putut calcula ruta: " + status);
+          }
+        });
+      }
+
+      function findCheapestNearby() {
+        const input = document.getElementById("start").value;
+        const coords = parseLocation(input);
+
+        const processLocation = (loc) => {
+          let minPret = Infinity;
+          let ceaMaiIeftina = null;
+
+          statii.forEach(s => {
+            const dist = google.maps.geometry.spherical.computeDistanceBetween(
+              loc,
+              new google.maps.LatLng(s.lat, s.lng)
+            );
+            if (dist <= 20000 && parseFloat(s.pret) < minPret) {
+              minPret = parseFloat(s.pret);
+              ceaMaiIeftina = s;
+            }
+          });
+
+          if (ceaMaiIeftina) {
+            map.setCenter({ lat: ceaMaiIeftina.lat, lng: ceaMaiIeftina.lng });
+            map.setZoom(17);
+            new google.maps.InfoWindow({
+              content: `<div style="font-weight:bold; font-size:16px; color:#006400;">🥇 ${ceaMaiIeftina.nume}</div>
+<div><b>Preț cel mai mic:</b> <span style="color:green;">${ceaMaiIeftina.pret.toFixed(4)} €/L</span></div>`
+            }).open(map, ceaMaiIeftina.marker || new google.maps.Marker({
+              position: { lat: ceaMaiIeftina.lat, lng: ceaMaiIeftina.lng },
+              map: map,
+              icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png"
+            }));
+          } else {
+            alert("Nicio stație sub 20 km de locația dată.");
+          }
+        };
+
+        if (coords) {
+          processLocation(new google.maps.LatLng(coords.lat, coords.lng));
+        } else {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ address: input }, (results, status) => {
+            if (status === "OK") {
+              processLocation(results[0].geometry.location);
+            } else {
+              alert("Locație invalidă: " + status);
+            }
+          });
+        }
+      }
+
+	function filtrareStatii(tip) {
+  markerList.forEach(marker => {
+    const nume = marker.getTitle()?.toUpperCase() || "";
+
+    if (tip === "TOATE") {
+      marker.setVisible(true);
+    } else if (tip === "DKV") {
+      marker.setVisible(nume.includes("DKV"));
+    } else if (tip === "IDS") {
+      marker.setVisible(nume.includes("IDS"));
+    } else if (tip === "EW") {
+      marker.setVisible(nume.includes("EW"));
+    } else if (tip === "SHELL") {
+      marker.setVisible(nume.includes("SHELL"));
+    }
+  });
+}
+
+function toggleFilter(tip, btn) {
+  const index = filtreActive.indexOf(tip);
+  if (index === -1) {
+    filtreActive.push(tip);
+    btn.classList.add("active");
+  } else {
+    filtreActive.splice(index, 1);
+    btn.classList.remove("active");
+  }
+
+  updateFilteredMarkers();
+}
+
+function resetFilter() {
+  filtreActive = [];
+  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove("active"));
+  updateFilteredMarkers();
+}
+
+function updateFilteredMarkers() {
+  markerList.forEach(marker => {
+    const nume = marker.getTitle()?.toUpperCase() || "";
+
+    if (filtreActive.length === 0) {
+      marker.setVisible(true);
+    } else {
+      const vizibil = filtreActive.some(tip => nume.includes(tip));
+      marker.setVisible(vizibil);
+    }
+  });
+}
+
+function salveazaCSV() {
+  const rows = [];
+
+  // Antetul - exact câmpurile tale
+  rows.push(["Tara", "Latitudine", "Longitudine", "Nume", "Cod", "Program", "Pret", "Observatii"]);
+
+  markerList.forEach(marker => {
+    if (marker.getVisible()) {
+      const poz = marker.getPosition();
+      const extra = marker.extra || {};
+
+      const lat = poz.lat();
+      const lng = poz.lng();
+      const nume = marker.getTitle() || "";
+      const cod = extra.cod || "";
+      const program = extra.program || "";
+      const pret = extra.pret || "";
+      const observatii = extra.observatii || "";
+      const tara = extra.tara || "";
+
+      rows.push([tara, lat, lng, nume, cod, program, pret, observatii]);
+    }
+  });
+
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Statii PECO");
+
+  const now = new Date();
+  const pad = num => String(num).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+
+  XLSX.writeFile(workbook, `statii_peco_${timestamp}.xlsx`);
+}
+
+function incarcaDinFisier() {
+  const input = document.getElementById("customExcelInput");
+  const file = input.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (event) {
+    try {
+      const data = new Uint8Array(event.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet);
+
+      // Șterge markerii existenți
+      markerList.forEach(m => m.setMap(null));
+      markerList.length = 0;
+      statii.length = 0;
+      toateStatiile.length = 0;
+      Object.keys(markerMap).forEach(k => delete markerMap[k]);
+
+      // Creează markerii din fișier
+      json.forEach(row => {
+        const tara = String(row["Tara"] || "").trim();
+        const cod = String(row["Cod"] || "").trim();
+        const nume = String(row["Nume"] || "").trim();
+        const lat = parseFloat(row["Latitudine"]);
+        const lng = parseFloat(row["Longitudine"]);
+        const program = String(row["Program"] || "").trim();
+        const pret = String(row["Pret"] || "").trim();
+        const observatii = String(row["Observatii"] || "").trim();
+
+        if (!cod || isNaN(lat) || isNaN(lng)) {
+          console.warn("🔸 Linie ignorată (cod/latitudine/longitudine lipsă):", row);
+          return;
+        }
+
+        addCustomMarker(tara, lat, lng, nume, cod, program, pret, observatii);
+      });
+      salveazaInCache();
+      alert("✅ Markerii au fost încărcați cu succes.");
+    } catch (err) {
+      console.error("❌ Eroare la procesarea fișierului:", err);
+      alert("Eroare la procesarea fișierului.");
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function reconstruiesteStatiiDinMarkerMap() {
+  toateStatiile.length = 0;
+  Object.values(markerList).forEach(marker => {
+    const e = marker.extra;
+    toateStatiile.push({
+      tara: e.tara || "",
+      cod: e.cod || "",
+      nume: marker.getTitle() || "",
+      lat: e.lat,
+      lng: e.lng,
+      program: e.program || "",
+      pret: e.pret || "",
+      observatii: e.observatii || ""
+    });
+  });
+}
+
+function salveazaInCache() {
+  reconstruiesteStatiiDinMarkerMap();
+  const markerData = toateStatiile.map(s => ({
+    tara: s.tara,
+    cod: s.cod,
+    nume: s.nume,
+    lat: s.lat,
+    lng: s.lng,
+    program: s.program,
+    pret: s.pret,
+    observatii: s.observatii
+  }));
+  localStorage.setItem("statii_cache", JSON.stringify(markerData));
+}
+
+    </script>
+
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBkjqyzNp54Wj34cRtYHOvVKNvCmUl1iYA&callback=initMap&libraries=geometry" async defer></script>
+    <script>
+  window.initMap = initMap; // <- face initMap global vizibil pentru API-ul Google Maps
+</script>
+  </body>
+</html>
